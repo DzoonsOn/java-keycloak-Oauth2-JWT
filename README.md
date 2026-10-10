@@ -552,3 +552,127 @@ Testy zakładają, że użytkownik Google ma rolę `USER`, ale nie ma `ADMIN`.
 Google odpowiada za uwierzytelnienie użytkownika, ale role i uprawnienia do Secure Chat są zarządzane przez Keycloak. Backend nadal powinien weryfikować JWT wystawiony przez Keycloak, a nie bezpośrednio token Google.
 
 Logowanie przez Google nie powinno automatycznie przyznawać roli ADMIN. Należy również kontrolować zasady łączenia kont, aby uniknąć nieautoryzowanego przypisania istniejącego konta.
+
+
+
+
+## 11. Logowanie przez Google (OAuth2 + Keycloak)
+
+Aplikacja Secure Chat umożliwia logowanie użytkowników za pomocą konta Google. Keycloak pełni funkcję pośrednika między Google a backendem Spring Boot.
+
+### 11.1. Utworzenie klienta OAuth2 w Google Cloud
+
+1. Otwórz [Google Cloud Console](https://console.cloud.google.com/).
+2. Utwórz projekt `secure-chat`.
+3. Przejdź do [Google Auth Platform](https://console.cloud.google.com/auth/overview).
+4. W sekcji **Branding** skonfiguruj nazwę aplikacji i adres e-mail.
+5. W sekcji **Audience** wybierz `External` i dodaj użytkowników testowych, jeśli aplikacja jest w trybie testowym.
+6. Przejdź do [Clients](https://console.cloud.google.com/auth/clients).
+7. Kliknij **Create client**.
+
+Ustaw:
+
+| Parametr | Wartość |
+|---|---|
+| Application type | Web application |
+| Name | `secure-chat-keycloak` |
+
+W sekcji **Authorized redirect URIs** dodaj:
+
+```text
+http://localhost:8080/realms/chat-realm/broker/google/endpoint
+```
+
+Kliknij **Create**.
+
+Google wygeneruje `Client ID` oraz `Client Secret`.
+
+### 11.2. Konfiguracja Google w Keycloak
+
+1. Otwórz [Keycloak Admin Console](http://localhost:8080/admin/).
+2. Wybierz realm `chat-realm`.
+3. Przejdź do **Identity Providers**.
+4. Kliknij **Add provider → Google**.
+5. Wprowadź dane:
+
+| Parametr | Wartość |
+|---|---|
+| Alias | `google` |
+| Display name | `Google` |
+| Client ID | Z Google Cloud |
+| Client Secret | Z Google Cloud |
+| Enabled | ON |
+
+6. Kliknij **Save**.
+
+Upewnij się, że adres **Redirect URI** w Keycloak jest identyczny z adresem dodanym w Google Cloud.
+
+### 11.3. Testowanie logowania Google
+
+Otwórz ekran logowania Keycloak:
+
+[Keycloak Account Console](http://localhost:8080/realms/chat-realm/account/)
+
+Następnie:
+
+1. Kliknij **Google** pod formularzem logowania.
+2. Wybierz konto Google.
+3. Zaloguj się i zaakceptuj wymagane zgody.
+4. Po pomyślnym logowaniu nastąpi powrót do Keycloak.
+
+Przy pierwszym logowaniu Keycloak może poprosić o uzupełnienie danych użytkownika.
+
+### 11.4. Weryfikacja użytkownika
+
+W panelu administracyjnym Keycloak:
+
+1. Wybierz **chat-realm → Users**.
+2. Znajdź użytkownika zalogowanego przez Google.
+3. Sprawdź zakładkę **Identity provider links**.
+4. Powinno istnieć powiązanie z dostawcą `google`.
+5. Przejdź do **Role mapping → Assign role**.
+6. Przypisz rolę `USER`.
+
+Po ponownym zalogowaniu token JWT powinien zawierać przypisaną rolę, o ile mapowanie ról do access tokenu jest włączone.
+
+### 11.5. Testowanie w Postmanie
+
+Logowanie przez Google można także przetestować bez frontendu, korzystając z Postmana.
+
+1. Utwórz żądanie `GET http://localhost:8081/api/me`.
+2. W **Authorization** wybierz `OAuth 2.0`.
+3. Ustaw **Authorization Code (With PKCE)**.
+4. Użyj Client ID `chat-frontend`.
+5. Ustaw adresy autoryzacji i tokenów z realm `chat-realm`.
+6. Kliknij **Get New Access Token**.
+7. Na ekranie Keycloak wybierz **Google**.
+8. Zaloguj się kontem Google.
+9. Kliknij **Use Token**, a następnie **Send**.
+
+W Keycloak klient `chat-frontend` musi mieć dodany adres callback Postmana do **Valid redirect URIs**.
+
+Przykładowa odpowiedź:
+
+```json
+{
+  "id": "user-id",
+  "username": "google-user",
+  "roles": ["ROLE_USER"]
+}
+```
+
+### 11.6. Przydatne linki
+
+- [Google Cloud Console](https://console.cloud.google.com/)
+- [Google Auth Platform – Branding](https://console.cloud.google.com/auth/branding)
+- [Google Auth Platform – Clients](https://console.cloud.google.com/auth/clients)
+- [Google Auth Platform – Audience](https://console.cloud.google.com/auth/audience)
+- [Keycloak Admin Console](http://localhost:8080/admin/)
+- [Keycloak Account Console](http://localhost:8080/realms/chat-realm/account/)
+
+### Uwagi bezpieczeństwa
+
+- Nie zapisuj `Client Secret` w repozytorium GitHub.
+- Backend Spring Boot weryfikuje token JWT wystawiony przez Keycloak, a nie bezpośrednio przez Google.
+- Użytkownik zalogowany przez Google nie powinien automatycznie otrzymywać uprawnień `ADMIN`.
+- W środowisku produkcyjnym używaj HTTPS i dokładnie określonych adresów przekierowania.
